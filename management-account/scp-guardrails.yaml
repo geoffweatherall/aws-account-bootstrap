@@ -1,0 +1,83 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  Service Control Policies enforcing an allow-list of AWS regions and
+  services on member accounts. Deploy this stack in the Organizations
+  management account. Requires the organization to be in "All features"
+  mode (SCPs have no effect otherwise, and none of these SCPs apply to the
+  management account itself - only to the accounts/OUs listed below).
+
+Parameters:
+  pTargetAccountIds:
+    Type: CommaDelimitedList
+    Default: "431071856068"
+    Description: >-
+      Member account IDs (or OU IDs) these SCPs are attached to. To cover
+      a new member account later, add its ID to this comma-separated list
+      and update the stack - no new SCP needs to be written.
+
+  pAllowedRegions:
+    Type: CommaDelimitedList
+    Default: "us-east-1"
+    Description: AWS regions member accounts are allowed to operate in.
+
+  pAllowedServiceActions:
+    Type: CommaDelimitedList
+    Default: "s3:*,dynamodb:*,lambda:*,appsync:*,cognito-idp:*,cloudfront:*,iam:*,sts:*,logs:*,budgets:*,ce:*,support:*,trustedadvisor:*,health:*,organizations:Describe*,organizations:List*"
+    Description: >-
+      Service action prefixes member accounts are allowed to use. Anything
+      not listed here is denied by omission, regardless of what any IAM
+      policy inside the member account grants.
+
+Resources:
+  RegionAllowlistSCP:
+    Type: AWS::Organizations::Policy
+    Properties:
+      Name: region-allowlist
+      Description: Denies use of any AWS region outside the allow-list, with an exemption for AWS's inherently-global services.
+      Type: SERVICE_CONTROL_POLICY
+      TargetIds: !Ref pTargetAccountIds
+      Content:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: DenyOutsideAllowedRegions
+            Effect: Deny
+            NotAction:
+              - iam:*
+              - organizations:*
+              - route53:*
+              - route53domains:*
+              - cloudfront:*
+              - waf:*
+              - wafv2:*
+              - support:*
+              - sts:*
+              - budgets:*
+              - ce:*
+              - trustedadvisor:*
+              - health:*
+              - acm:*
+            Resource: "*"
+            Condition:
+              StringNotEquals:
+                aws:RequestedRegion: !Ref pAllowedRegions
+
+  ServiceAllowlistSCP:
+    Type: AWS::Organizations::Policy
+    Properties:
+      Name: service-allowlist
+      Description: Allows only an explicit list of AWS services; everything else is denied by omission.
+      Type: SERVICE_CONTROL_POLICY
+      TargetIds: !Ref pTargetAccountIds
+      Content:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AllowOnlyUsedServices
+            Effect: Allow
+            Action: !Ref pAllowedServiceActions
+            Resource: "*"
+
+Outputs:
+  RegionAllowlistSCPId:
+    Value: !Ref RegionAllowlistSCP
+  ServiceAllowlistSCPId:
+    Value: !Ref ServiceAllowlistSCP

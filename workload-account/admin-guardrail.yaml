@@ -1,0 +1,193 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  A self-protecting IAM permissions boundary, an MFA-gated admin role with
+  a bounded session lifetime, and a group for onboarding IAM users onto
+  this pattern. Deploy in a member/workload account (this account:
+  431071856068). Requires CAPABILITY_NAMED_IAM.
+
+Parameters:
+  pBoundaryPolicyName:
+    Type: String
+    Default: GuardrailPermissionsBoundary
+    Description: >-
+      Fixed name for the permissions boundary managed policy. Do not
+      rename after first deploy - the policy's own content references
+      this name to identify itself, and a rename breaks that reference.
+
+  pRoleName:
+    Type: String
+    Default: GuardrailAdminRole
+
+  pGroupName:
+    Type: String
+    Default: GuardrailAdmins
+
+  pMaxSessionDurationSeconds:
+    Type: Number
+    Default: 14400
+    MinValue: 3600
+    MaxValue: 43200
+    Description: Maximum lifetime, in seconds, of a session assumed into GuardrailAdminRole. Default is 4 hours.
+
+  pAllowedRegions:
+    Type: CommaDelimitedList
+    Default: "us-east-1"
+    Description: Must match the region-allowlist SCP deployed from the management account (defense in depth, not a substitute for it).
+
+  pAllowedServiceActions:
+    Type: CommaDelimitedList
+    Default: "s3:*,dynamodb:*,lambda:*,appsync:*,cognito-idp:*,cloudfront:*,iam:*,sts:*,logs:*,budgets:*,ce:*,support:*,trustedadvisor:*,health:*,organizations:Describe*,organizations:List*"
+    Description: Must match the service-allowlist SCP deployed from the management account (defense in depth, not a substitute for it).
+
+Resources:
+  GuardrailBoundary:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Ref pBoundaryPolicyName
+      Description: >-
+        Permissions ceiling used by GuardrailAdminRole and any IAM user
+        onboarded via the GuardrailAdmins group. Denies its own
+        modification/removal and denies creating new IAM users or roles
+        that don't carry this same boundary, closing the "spin up an
+        unrestricted identity" escape hatch.
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AllowOnlyUsedServices
+            Effect: Allow
+            Action: !Ref pAllowedServiceActions
+            Resource: "*"
+
+          - Sid: DenyOutsideAllowedRegions
+            Effect: Deny
+            NotAction:
+              - iam:*
+              - organizations:*
+              - route53:*
+              - route53domains:*
+              - cloudfront:*
+              - waf:*
+              - wafv2:*
+              - support:*
+              - sts:*
+              - budgets:*
+              - ce:*
+              - trustedadvisor:*
+              - health:*
+              - acm:*
+            Resource: "*"
+            Condition:
+              StringNotEquals:
+                aws:RequestedRegion: !Ref pAllowedRegions
+
+          - Sid: DenyCreateWithoutThisBoundary
+            Effect: Deny
+            Action:
+              - iam:CreateUser
+              - iam:CreateRole
+            Resource: "*"
+            Condition:
+              StringNotEquals:
+                iam:PermissionsBoundary: !Sub "arn:aws:iam::${AWS::AccountId}:policy/${pBoundaryPolicyName}"
+
+          - Sid: DenyBoundaryDetachOrReplace
+            Effect: Deny
+            Action:
+              - iam:DeleteUserPermissionsBoundary
+              - iam:DeleteRolePermissionsBoundary
+              - iam:PutUserPermissionsBoundary
+              - iam:PutRolePermissionsBoundary
+            Resource: "*"
+
+          - Sid: DenyBoundaryPolicyTampering
+            Effect: Deny
+            Action:
+              - iam:CreatePolicyVersion
+              - iam:DeletePolicy
+              - iam:DeletePolicyVersion
+              - iam:SetDefaultPolicyVersion
+            Resource: !Sub "arn:aws:iam::${AWS::AccountId}:policy/${pBoundaryPolicyName}"
+
+  GuardrailAdminRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Ref pRoleName
+      Description: >-
+        Day-to-day admin role. Only assumable with an active MFA session;
+        the resulting session is capped at pMaxSessionDurationSeconds
+        regardless of anything else.
+      MaxSessionDuration: !Ref pMaxSessionDurationSeconds
+      PermissionsBoundary: !Ref GuardrailBoundary
+      ManagedPolicyArns:
+        - !Ref GuardrailBoundary
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub "arn:aws:iam::${AWS::AccountId}:root"
+            Action: sts:AssumeRole
+            Condition:
+              Bool:
+                aws:MultiFactorAuthPresent: "true"
+
+  GuardrailAdmins:
+    Type: AWS::IAM::Group
+    Properties:
+      GroupName: !Ref pGroupName
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/IAMUserChangePassword
+      Policies:
+        - PolicyName: AssumeGuardrailAdminRole
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: sts:AssumeRole
+                Resource: !GetAtt GuardrailAdminRole.Arn
+
+        - PolicyName: SelfServiceMFA
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: ViewOwnUser
+                Effect: Allow
+                Action:
+                  - iam:GetUser
+                  - iam:ListMFADevices
+                Resource: !Sub "arn:aws:iam::${AWS::AccountId}:user/${!aws:username}"
+
+              - Sid: EnrollOwnMFA
+                Effect: Allow
+                Action:
+                  - iam:CreateVirtualMFADevice
+                  - iam:EnableMFADevice
+                  - iam:ResyncMFADevice
+                Resource:
+                  - !Sub "arn:aws:iam::${AWS::AccountId}:mfa/${!aws:username}"
+                  - !Sub "arn:aws:iam::${AWS::AccountId}:user/${!aws:username}"
+
+              # Deliberately requires an active MFA session to remove MFA -
+              # otherwise a leaked password alone would be enough to strip
+              # MFA protection and defeat GuardrailAdminRole's MFA
+              # condition. See the README for the enrollment-time caveat
+              # this doesn't cover.
+              - Sid: RemoveOwnMFAOnlyWithMFA
+                Effect: Allow
+                Action:
+                  - iam:DeactivateMFADevice
+                  - iam:DeleteVirtualMFADevice
+                Resource:
+                  - !Sub "arn:aws:iam::${AWS::AccountId}:mfa/${!aws:username}"
+                  - !Sub "arn:aws:iam::${AWS::AccountId}:user/${!aws:username}"
+                Condition:
+                  Bool:
+                    aws:MultiFactorAuthPresent: "true"
+
+Outputs:
+  GuardrailBoundaryArn:
+    Value: !Ref GuardrailBoundary
+  GuardrailAdminRoleArn:
+    Value: !GetAtt GuardrailAdminRole.Arn
+  GuardrailAdminsGroupName:
+    Value: !Ref GuardrailAdmins
