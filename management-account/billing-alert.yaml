@@ -1,0 +1,39 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  An AWS Budget that emails an alert on any non-trivial spend in the
+  Organizations management account. This account is deliberately meant to
+  hold no workloads and no IAM users, so any recorded cost here at all is
+  anomalous and worth investigating immediately - unlike the workload
+  account's budgets, this isn't a cost-management concern, it's a security
+  signal. Deploy in the management account (339140804537). No IAM capability
+  needed.
+
+Parameters:
+  pAlertEmail:
+    Type: String
+    Description: Email address to notify on any spend. AWS Budgets emails this address directly - no SNS topic or subscription confirmation needed.
+
+Resources:
+  AnyUsageBudget:
+    Type: AWS::Budgets::Budget
+    Properties:
+      Budget:
+        BudgetName: management-account-any-usage-alert
+        BudgetType: COST
+        TimeUnit: MONTHLY
+        BudgetLimit:
+          Amount: 0.01
+          Unit: USD
+      NotificationsWithSubscribers:
+        - Notification:
+            NotificationType: ACTUAL
+            ComparisonOperator: GREATER_THAN
+            Threshold: 0.01
+            ThresholdType: ABSOLUTE_VALUE
+          Subscribers:
+            - SubscriptionType: EMAIL
+              Address: !Ref pAlertEmail
+
+Outputs:
+  BudgetName:
+    Value: !Ref AnyUsageBudget

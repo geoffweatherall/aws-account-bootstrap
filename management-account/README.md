@@ -6,7 +6,11 @@ regions and services member accounts can use - restrictions that member
 account admins cannot remove, because SCPs live outside the account they
 restrict and are only editable from here.
 
-Only one template: `scp-guardrails.yaml`.
+Two independent templates:
+
+- `scp-guardrails.yaml` - the region/service allow-list SCPs.
+- `billing-alert.yaml` - an AWS Budget that emails an alert on any
+  non-trivial spend in this account.
 
 ## Prerequisites (should already be true)
 
@@ -40,7 +44,7 @@ never restrict the account they're managed from, only member accounts.
 That's intentional; it's what keeps this guardrail out of reach of the
 member account's admin user even if their credentials leak.
 
-## Deploying
+## Deploying scp-guardrails.yaml
 
 1. Log in to **339140804537** as the **root user** (console).
 2. Go to **CloudFormation** (any region - `us-east-1` is fine;
@@ -59,6 +63,21 @@ This takes effect immediately on the target account(s) - unlike joining
 the organization (which changes nothing by itself, since the default
 `FullAWSAccess` SCP grants everything), attaching these SCPs actively
 restricts what the member account can do from that moment on.
+
+## billing-alert.yaml
+
+An `AWS::Budgets::Budget` that emails `pAlertEmail` the moment any spend
+above one cent (`ACTUAL`, `ABSOLUTE_VALUE`, $0.01) shows up in this account.
+No `FORECASTED` notification - at a one-cent threshold it wouldn't add
+anything, `ACTUAL` alone fires essentially immediately. This account is
+meant to hold no workloads and no IAM users (see
+[../workload-account/README.md](../workload-account/README.md)'s admin
+guardrail for why), so this isn't cost management, it's a tripwire: any
+recorded cost here at all means something exists in this account that
+shouldn't. Deploy the same way as `scp-guardrails.yaml` above - no IAM
+capability needed, this template doesn't touch IAM either. **Free**: this
+is the only budget in this account, well under the free-2-per-account
+limit.
 
 ## Verifying
 

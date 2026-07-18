@@ -1,0 +1,92 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  Two AWS Budgets that email an alert when this account's forecasted or
+  actual month-to-date cost exceeds a low ("worth a look") and a high
+  ("this is a lot more than expected") threshold. Deploy in a
+  member/workload account. No IAM capability needed.
+
+Parameters:
+  pAlertEmail:
+    Type: String
+    Description: Email address to notify when either threshold is crossed. AWS Budgets emails this address directly - no SNS topic or subscription confirmation needed.
+
+  pLowBudgetUsd:
+    Type: Number
+    Default: 1
+    MinValue: 0.01
+    Description: Lower monthly cost threshold, in USD, for an early "something's using more than expected" alert.
+
+  pHighBudgetUsd:
+    Type: Number
+    Default: 10
+    MinValue: 0.01
+    Description: Higher monthly cost threshold, in USD, for a "this is a lot more than expected" alert.
+
+Resources:
+  LowCostBudget:
+    Type: AWS::Budgets::Budget
+    Properties:
+      Budget:
+        BudgetName: workload-monthly-cost-alert-low
+        BudgetType: COST
+        TimeUnit: MONTHLY
+        BudgetLimit:
+          Amount: !Ref pLowBudgetUsd
+          Unit: USD
+      NotificationsWithSubscribers:
+        # Fires as soon as AWS's cost forecast for the rest of the month
+        # projects a total over the threshold - the earliest possible
+        # warning, though the forecast itself is unreliable in the first
+        # few days of a billing cycle with little usage data to project
+        # from. Paired with the ACTUAL notification below for a more
+        # reliable, if later, second trigger.
+        - Notification:
+            NotificationType: FORECASTED
+            ComparisonOperator: GREATER_THAN
+            Threshold: 100
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - SubscriptionType: EMAIL
+              Address: !Ref pAlertEmail
+        - Notification:
+            NotificationType: ACTUAL
+            ComparisonOperator: GREATER_THAN
+            Threshold: 100
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - SubscriptionType: EMAIL
+              Address: !Ref pAlertEmail
+
+  HighCostBudget:
+    Type: AWS::Budgets::Budget
+    Properties:
+      Budget:
+        BudgetName: workload-monthly-cost-alert-high
+        BudgetType: COST
+        TimeUnit: MONTHLY
+        BudgetLimit:
+          Amount: !Ref pHighBudgetUsd
+          Unit: USD
+      NotificationsWithSubscribers:
+        - Notification:
+            NotificationType: FORECASTED
+            ComparisonOperator: GREATER_THAN
+            Threshold: 100
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - SubscriptionType: EMAIL
+              Address: !Ref pAlertEmail
+        - Notification:
+            NotificationType: ACTUAL
+            ComparisonOperator: GREATER_THAN
+            Threshold: 100
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - SubscriptionType: EMAIL
+              Address: !Ref pAlertEmail
+
+Outputs:
+  LowCostBudgetName:
+    Value: !Ref LowCostBudget
+  HighCostBudgetName:
+    Value: !Ref HighCostBudget

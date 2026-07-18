@@ -2,13 +2,16 @@
 
 CloudFormation for **member/workload accounts** (this account: 431071856068,
 and any future ones). Deploy these from *inside* the account being
-configured - not from the management account. Two independent templates:
+configured - not from the management account. Three independent templates:
 
 - `admin-guardrail.yaml` - a self-protecting permissions boundary, an
   MFA-gated admin role with a bounded session lifetime, and a group for
   onboarding IAM users onto this pattern.
 - `credential-rotation.yaml` - a scheduled Lambda that force-deactivates
   IAM access keys past a configurable age.
+- `billing-alert.yaml` - two AWS Budgets that email an alert when this
+  account's monthly cost is forecasted or actually exceeds a low and a
+  high threshold.
 
 They don't depend on each other and can be deployed in either order.
 
@@ -22,10 +25,12 @@ holds even before or independent of the SCPs being attached.
 ## Deploying
 
 Log in to 431071856068 with your current admin user (or root), open
-CloudFormation, **Create stack** > upload the template. Both templates
-create named IAM resources, so the console will ask you to acknowledge
-**"I acknowledge that AWS CloudFormation might create IAM resources with
-custom names"** (`CAPABILITY_NAMED_IAM`) - that's expected.
+CloudFormation, **Create stack** > upload the template. `admin-guardrail.yaml`
+and `credential-rotation.yaml` create named IAM resources, so the console
+will ask you to acknowledge **"I acknowledge that AWS CloudFormation might
+create IAM resources with custom names"** (`CAPABILITY_NAMED_IAM`) for those
+two - that's expected. `billing-alert.yaml` needs no capability
+acknowledgement.
 
 ## admin-guardrail.yaml
 
@@ -132,6 +137,26 @@ permanent key you keep around for CLI convenience to call `sts assume-role`
 from outside a browser. Worth minimizing use of that key regardless -
 day-to-day work through `GuardrailAdminRole`'s temporary sessions is safer,
 since those expire on their own without needing this Lambda to catch them.
+
+## billing-alert.yaml
+
+Two `AWS::Budgets::Budget` resources - `pLowBudgetUsd` (default $1, an early
+"something's using more than expected" signal) and `pHighBudgetUsd` (default
+$10, a "this is a lot more than expected" sanity check) - each with the same
+two email notifications:
+
+- **FORECASTED** - fires as soon as AWS's cost forecast for the rest of the
+  month projects a total over the threshold. The earliest possible warning,
+  but the forecast is unreliable in the first few days of a billing cycle
+  with little usage data to project from.
+- **ACTUAL** - fires once real month-to-date spend crosses the threshold.
+  Later, but reliable regardless of how little usage history exists.
+
+AWS Budgets emails `pAlertEmail` directly - no SNS topic, no subscription
+link to confirm. **Free, but exactly at the limit**: the first two budgets
+per AWS account cost nothing, and this template creates exactly two. That's
+the full free allowance for this account - any additional budget created
+here later (including manually, via the console) will cost ~$0.02/day.
 
 ## Keeping the allow-lists in sync
 
