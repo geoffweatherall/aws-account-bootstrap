@@ -1,6 +1,13 @@
-# aws-account-bootstrap
+# mootmaker-aws-account-bootstrap
 
-Bootstrap a new AWS account to help make locked down IAM users unable to escape basic guardrails.
+CloudFormation that locks down the two AWS accounts behind the
+[mootmaker](https://github.com/geoffweatherall/mootmaker) project - the
+Organizations management account and the workload account that
+[mootmaker-api](https://github.com/geoffweatherall/mootmaker-api) and
+[mootmaker-webapp](https://github.com/geoffweatherall/mootmaker-webapp)
+deploy into. Not a generic reusable template: account IDs, the region/service
+allow-lists, and the IAM Identity Center setup below are all specific to
+this project's two accounts.
 
 Two parts, one per account:
 
@@ -8,8 +15,13 @@ Two parts, one per account:
   Organizations management account (339140804537): SCP guardrails, a billing
   tripwire, and IAM Identity Center (SSO) setup.
 - [workload-account/](workload-account/README.md) - CloudFormation for the
-  workload account (431071856068, and any future ones): a defense-in-depth
-  admin guardrail, scheduled credential rotation, and billing alerts.
+  workload account (431071856068, and any future ones): scheduled credential
+  rotation and billing alerts. This is the account
+  [mootmaker-api](https://github.com/geoffweatherall/mootmaker-api),
+  [mootmaker-webapp](https://github.com/geoffweatherall/mootmaker-webapp),
+  and [mootmaker-domain](https://github.com/geoffweatherall/mootmaker-domain)
+  deploy their `test` and `production` environments into (see each repo's
+  own README for their `deploy.sh`).
 
 ## Configuring AWS access on a new machine
 
