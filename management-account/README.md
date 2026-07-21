@@ -86,10 +86,10 @@ limit.
 
 Replaces day-to-day use of a long-lived IAM user access key with short-lived
 IAM Identity Center (successor to AWS SSO) sessions, MFA-protected by
-default. This is the modern alternative to `GuardrailAdminRole` in
-[../workload-account/admin-guardrail.yaml](../workload-account/admin-guardrail.yaml)
-(which still stands as a break-glass fallback - see "Do I still need
-GuardrailAdminRole?" below).
+default. There is deliberately no separate IAM-user-based break-glass role
+alongside this - the sole fallback if Identity Center is ever unreachable
+is the AWS account root user (see "Do I still need a break-glass IAM role?"
+below).
 
 Two parts to setting this up: a few manual, one-time, console-only steps
 (nothing here can be templated - see why below), then deploying the
@@ -137,9 +137,9 @@ You should now have three values: **Instance ARN**, **Identity store ID**,
    - `pInstanceArn`, `pIdentityStoreId`, `pAdminUserId` - the three values
      from the prerequisites above (no defaults - you must supply these).
    - Everything else has a sensible default already matching
-     `scp-guardrails.yaml` and `admin-guardrail.yaml` - only change
-     `pAllowedRegions`/`pAllowedServiceActions` if you changed those
-     elsewhere too, and keep all three in sync if you do.
+     `scp-guardrails.yaml` - only change `pAllowedRegions`/
+     `pAllowedServiceActions` if you changed those elsewhere too, and keep
+     both in sync if you do.
 4. No capability checkbox needed - this template creates no `AWS::IAM::*`
    resources, only Identity Center/Identity Store ones.
 5. Create the stack. Note the **AdminPermissionSetArn** output if you want
@@ -153,14 +153,16 @@ the exact `~/.aws/config` file to use, how to sign in, and how to verify it
 worked - that's the same for any machine, not specific to setting up this
 stack.
 
-### Do I still need GuardrailAdminRole?
+### Do I still need a break-glass IAM role?
 
-Keep it as a fallback (e.g. if Identity Center itself is ever
-unreachable), but there's no need to use it day-to-day once this works.
-Once you're comfortable relying on Identity Center sessions, consider
-deactivating (not deleting) `geoff.weatherall`'s long-lived IAM access
-key - `credential-rotation.yaml` in `../workload-account` will do this for
-you automatically after `pMaxKeyAgeDays` anyway if you stop using it.
+No, by design here - there is no IAM-user-based break-glass role in this
+setup (an earlier version of this project had one, `GuardrailAdminRole`;
+it was deliberately removed once Identity Center was confirmed working,
+along with the last remaining IAM user). The account's only standing
+access paths are Identity Center and the AWS account root user. If
+Identity Center is ever unreachable, root login (console) is the fallback
+- there is no faster middle-ground path, and that's an accepted
+trade-off in exchange for one fewer standing identity in the account.
 
 ## Verifying
 

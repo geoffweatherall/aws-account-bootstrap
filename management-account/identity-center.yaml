@@ -50,24 +50,23 @@ Parameters:
     Default: PT4H
     Description: >-
       Max lifetime of a session granted through this permission set, ISO 8601
-      duration format. Matches GuardrailAdminRole's 4-hour default in
-      ../workload-account/admin-guardrail.yaml.
+      duration format.
 
   pAllowedRegions:
     Type: CommaDelimitedList
     Default: "us-east-1"
     Description: >-
-      Must match the region-allowlist SCP (scp-guardrails.yaml) and the
-      workload guardrail boundary (../workload-account/admin-guardrail.yaml).
-      This permission set's own policy is a second layer, same as that
-      boundary - the SCP remains the authoritative ceiling either way.
+      Must match the region-allowlist SCP (scp-guardrails.yaml). This
+      permission set's own policy is a second layer that also works
+      independent of the SCP - the SCP remains the authoritative ceiling
+      either way.
 
   pAllowedServiceActions:
     Type: CommaDelimitedList
-    Default: "s3:*,dynamodb:*,lambda:*,appsync:*,cognito-idp:*,cloudfront:*,iam:*,sts:*,logs:*,budgets:*,ce:*,support:*,trustedadvisor:*,health:*,organizations:Describe*,organizations:List*"
+    Default: "s3:*,dynamodb:*,lambda:*,appsync:*,cognito-idp:*,cloudfront:*,iam:*,sts:*,logs:*,cloudformation:*,budgets:*,ce:*,support:*,trustedadvisor:*,health:*,organizations:Describe*,organizations:List*"
     Description: >-
-      Must match the service-allowlist SCP and the workload guardrail
-      boundary. Keep all three in sync when adding a new service.
+      Must match the service-allowlist SCP. Keep both in sync when adding a
+      new service.
 
 Resources:
   AdminGroup:
