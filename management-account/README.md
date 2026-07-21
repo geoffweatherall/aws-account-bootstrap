@@ -6,11 +6,14 @@ regions and services member accounts can use - restrictions that member
 account admins cannot remove, because SCPs live outside the account they
 restrict and are only editable from here.
 
-Two independent templates:
+Three independent templates:
 
 - `scp-guardrails.yaml` - the region/service allow-list SCPs.
 - `billing-alert.yaml` - an AWS Budget that emails an alert on any
   non-trivial spend in this account.
+- `identity-center.yaml` - an IAM Identity Center admin group, permission
+  set, and account assignment, so day-to-day work uses short-lived SSO
+  sessions instead of a long-lived IAM user access key.
 
 ## Prerequisites (should already be true)
 
@@ -78,6 +81,86 @@ shouldn't. Deploy the same way as `scp-guardrails.yaml` above - no IAM
 capability needed, this template doesn't touch IAM either. **Free**: this
 is the only budget in this account, well under the free-2-per-account
 limit.
+
+## identity-center.yaml
+
+Replaces day-to-day use of a long-lived IAM user access key with short-lived
+IAM Identity Center (successor to AWS SSO) sessions, MFA-protected by
+default. This is the modern alternative to `GuardrailAdminRole` in
+[../workload-account/admin-guardrail.yaml](../workload-account/admin-guardrail.yaml)
+(which still stands as a break-glass fallback - see "Do I still need
+GuardrailAdminRole?" below).
+
+Two parts to setting this up: a few manual, one-time, console-only steps
+(nothing here can be templated - see why below), then deploying the
+CloudFormation stack with the values those steps produce.
+
+### Prerequisites: enabling IAM Identity Center (manual, one-time)
+
+CloudFormation cannot do this part. `AWS::SSO::Instance` only creates a
+*standalone* account-level instance; an *organization* instance (the kind
+that spans your management account and 431071856068) has to be enabled
+once, by hand, from the management account:
+
+1. Log in to **339140804537** as the **root user** (console).
+2. Go to **IAM Identity Center** and choose **Enable**. Pick your identity
+   source as **Identity Center directory** (the built-in one - no external
+   IdP needed for a single person).
+3. Note the **home Region** it's enabled in (top-right of the console,
+   pick one from `pAllowedRegions`, e.g. `us-east-1` - once set, this
+   can't be changed without deleting and recreating the instance).
+4. On the **Settings** page, copy down two values from the "Identity
+   source" card - you'll need both as stack parameters:
+   - **Instance ARN**
+   - **Identity store ID**
+5. Still on **Settings**, check the **Authentication** tab: AWS enables
+   MFA by default for new instances, so this should already show MFA
+   required "Every time they sign in" or similar. If not, turn it on here
+   - there's no CloudFormation resource for this setting, it's
+   console/API only.
+6. Go to **Users** > **Add user**. Create a user for yourself (email,
+   name). You'll set a password and enroll an MFA device the first time
+   you sign in through the resulting access portal URL.
+7. Once created, open your user and copy its **User ID** from the
+   **General** tab (not your email/username) - this is `pAdminUserId`.
+
+You should now have three values: **Instance ARN**, **Identity store ID**,
+**your User ID**.
+
+### Deploying identity-center.yaml
+
+1. Still logged in to **339140804537** as root, in the **same Region** you
+   enabled Identity Center in (step 3 above).
+2. **CloudFormation** > **Create stack** > **With new resources** > upload
+   `identity-center.yaml`.
+3. Fill in the parameters:
+   - `pInstanceArn`, `pIdentityStoreId`, `pAdminUserId` - the three values
+     from the prerequisites above (no defaults - you must supply these).
+   - Everything else has a sensible default already matching
+     `scp-guardrails.yaml` and `admin-guardrail.yaml` - only change
+     `pAllowedRegions`/`pAllowedServiceActions` if you changed those
+     elsewhere too, and keep all three in sync if you do.
+4. No capability checkbox needed - this template creates no `AWS::IAM::*`
+   resources, only Identity Center/Identity Store ones.
+5. Create the stack. Note the **AdminPermissionSetArn** output if you want
+   it later, though you won't need it directly for day-to-day use.
+
+### Using it
+
+See the root README's ["Configuring AWS access on a new
+machine"](../README.md#configuring-aws-access-on-a-new-machine) section for
+the exact `~/.aws/config` file to use, how to sign in, and how to verify it
+worked - that's the same for any machine, not specific to setting up this
+stack.
+
+### Do I still need GuardrailAdminRole?
+
+Keep it as a fallback (e.g. if Identity Center itself is ever
+unreachable), but there's no need to use it day-to-day once this works.
+Once you're comfortable relying on Identity Center sessions, consider
+deactivating (not deleting) `geoff.weatherall`'s long-lived IAM access
+key - `credential-rotation.yaml` in `../workload-account` will do this for
+you automatically after `pMaxKeyAgeDays` anyway if you stop using it.
 
 ## Verifying
 

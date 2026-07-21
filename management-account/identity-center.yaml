@@ -1,0 +1,145 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  IAM Identity Center admin group, permission set, and account assignment,
+  granting console/CLI access to the workload account without any long-lived
+  IAM user access keys. Deploy this stack in the Organizations management
+  account (339140804537), in Identity Center's home region. Requires IAM
+  Identity Center to already be enabled (manual, one-time, console-only -
+  see the "Prerequisites: enabling IAM Identity Center" section in this
+  directory's README) and your Identity Center user to already exist.
+
+Parameters:
+  pInstanceArn:
+    Type: String
+    Description: >-
+      ARN of the IAM Identity Center instance. Console: IAM Identity Center >
+      Settings > Identity source card ("Instance ARN").
+
+  pIdentityStoreId:
+    Type: String
+    Description: >-
+      Identity Store ID backing the instance above. Same Settings page as
+      pInstanceArn ("Identity store ID"), format d-xxxxxxxxxx.
+
+  pAdminUserId:
+    Type: String
+    Description: >-
+      Identity Store User ID of the person to add to the admin group created
+      by this stack. Console: IAM Identity Center > Users > <your user> >
+      General tab ("User ID"). Not the same as the username/email.
+
+  pTargetAccountId:
+    Type: String
+    Default: "431071856068"
+    Description: AWS account this permission set grants access to.
+
+  pGroupName:
+    Type: String
+    Default: IdentityCenterAdmins
+    Description: >-
+      Identity Center group name. Add more users to this group later
+      (console: IAM Identity Center > Groups) to onboard them - no stack
+      update needed.
+
+  pPermissionSetName:
+    Type: String
+    Default: WorkloadAdministrator
+
+  pSessionDurationIso8601:
+    Type: String
+    Default: PT4H
+    Description: >-
+      Max lifetime of a session granted through this permission set, ISO 8601
+      duration format. Matches GuardrailAdminRole's 4-hour default in
+      ../workload-account/admin-guardrail.yaml.
+
+  pAllowedRegions:
+    Type: CommaDelimitedList
+    Default: "us-east-1"
+    Description: >-
+      Must match the region-allowlist SCP (scp-guardrails.yaml) and the
+      workload guardrail boundary (../workload-account/admin-guardrail.yaml).
+      This permission set's own policy is a second layer, same as that
+      boundary - the SCP remains the authoritative ceiling either way.
+
+  pAllowedServiceActions:
+    Type: CommaDelimitedList
+    Default: "s3:*,dynamodb:*,lambda:*,appsync:*,cognito-idp:*,cloudfront:*,iam:*,sts:*,logs:*,budgets:*,ce:*,support:*,trustedadvisor:*,health:*,organizations:Describe*,organizations:List*"
+    Description: >-
+      Must match the service-allowlist SCP and the workload guardrail
+      boundary. Keep all three in sync when adding a new service.
+
+Resources:
+  AdminGroup:
+    Type: AWS::IdentityStore::Group
+    Properties:
+      DisplayName: !Ref pGroupName
+      Description: >-
+        Members can sign in through IAM Identity Center and assume
+        WorkloadAdministrator into the workload account.
+      IdentityStoreId: !Ref pIdentityStoreId
+
+  AdminGroupMembership:
+    Type: AWS::IdentityStore::GroupMembership
+    Properties:
+      IdentityStoreId: !Ref pIdentityStoreId
+      GroupId: !GetAtt AdminGroup.GroupId
+      MemberId:
+        UserId: !Ref pAdminUserId
+
+  AdminPermissionSet:
+    Type: AWS::SSO::PermissionSet
+    Properties:
+      Name: !Ref pPermissionSetName
+      Description: >-
+        Day-to-day admin access to the workload account, scoped to the same
+        region/service allow-list as the SCP and the workload guardrail
+        boundary - this is a grant, not just a boundary, so it only ever
+        carries exactly these permissions.
+      InstanceArn: !Ref pInstanceArn
+      SessionDuration: !Ref pSessionDurationIso8601
+      InlinePolicy:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AllowOnlyUsedServices
+            Effect: Allow
+            Action: !Ref pAllowedServiceActions
+            Resource: "*"
+
+          - Sid: DenyOutsideAllowedRegions
+            Effect: Deny
+            NotAction:
+              - iam:*
+              - organizations:*
+              - route53:*
+              - route53domains:*
+              - cloudfront:*
+              - waf:*
+              - wafv2:*
+              - support:*
+              - sts:*
+              - budgets:*
+              - ce:*
+              - trustedadvisor:*
+              - health:*
+              - acm:*
+            Resource: "*"
+            Condition:
+              StringNotEquals:
+                aws:RequestedRegion: !Ref pAllowedRegions
+
+  WorkloadAccountAssignment:
+    Type: AWS::SSO::Assignment
+    Properties:
+      InstanceArn: !Ref pInstanceArn
+      PermissionSetArn: !GetAtt AdminPermissionSet.PermissionSetArn
+      PrincipalId: !GetAtt AdminGroup.GroupId
+      PrincipalType: GROUP
+      TargetId: !Ref pTargetAccountId
+      TargetType: AWS_ACCOUNT
+
+Outputs:
+  AdminGroupId:
+    Value: !GetAtt AdminGroup.GroupId
+  AdminPermissionSetArn:
+    Value: !GetAtt AdminPermissionSet.PermissionSetArn
