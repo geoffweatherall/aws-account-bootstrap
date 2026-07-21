@@ -1,4 +1,4 @@
-# mootmaker-aws-account-bootstrap
+# mootmaker-bootstrap-aws-accounts
 
 CloudFormation that locks down the two AWS accounts behind the
 [mootmaker](https://github.com/geoffweatherall/mootmaker) project - the
