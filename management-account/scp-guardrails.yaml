@@ -22,11 +22,14 @@ Parameters:
 
   pAllowedServiceActions:
     Type: CommaDelimitedList
-    Default: "s3:*,dynamodb:*,lambda:*,appsync:*,cognito-idp:*,cloudfront:*,iam:*,sts:*,logs:*,cloudformation:*,budgets:*,ce:*,support:*,trustedadvisor:*,health:*,organizations:Describe*,organizations:List*"
+    Default: "s3:*,dynamodb:*,lambda:*,appsync:*,cognito-idp:*,cloudfront:*,route53:*,acm:*,iam:*,sts:*,logs:*,cloudformation:*,budgets:*,ce:*,support:*,trustedadvisor:*,health:*,organizations:Describe*,organizations:List*"
     Description: >-
       Service action prefixes member accounts are allowed to use. Anything
       not listed here is denied by omission, regardless of what any IAM
-      policy inside the member account grants.
+      policy inside the member account grants. Must match
+      identity-center.yaml's pAllowedServiceActions - that permission set's
+      own policy is a second layer, but this SCP is the authoritative
+      ceiling either way.
 
 Resources:
   RegionAllowlistSCP:
